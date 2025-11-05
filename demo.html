@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="zh-cn">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>行政区划 Demo</title>
+  <style>
+    :root {
+      --bg: #f7fafc;
+      --card: #ffffff;
+      --muted: #6b7280;
+      --accent: #0ea5a4
+    }
+
+    body {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      margin: 0;
+      background: var(--bg);
+      color: #0f172a
+    }
+
+    .wrap {
+      max-width: 980px;
+      margin: 28px auto;
+      padding: 20px
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px
+    }
+
+    h1 {
+      font-size: 20px;
+      margin: 0
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      align-items: center
+    }
+
+    button {
+      background: var(--accent);
+      border: 0;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer
+    }
+
+    button.secondary {
+      background: #e6eef0;
+      color: #064e4e
+    }
+
+    .breadcrumb {
+      margin-left: 12px;
+      color: var(--muted);
+      font-size: 14px
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px
+    }
+
+    .card {
+      background: var(--card);
+      padding: 12px;
+      border-radius: 10px;
+      box-shadow: 0 1px 2px rgba(2, 6, 23, 0.06);
+      border: 1px solid rgba(15, 23, 42, 0.04)
+    }
+
+    .card h3 {
+      margin: 0 0 6px 0;
+      font-size: 16px
+    }
+
+    .meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px
+    }
+
+    .pill {
+      background: #f1f5f9;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      color: var(--muted)
+    }
+
+    .address {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px
+    }
+
+    .empty {
+      padding: 20px;
+      text-align: center;
+      color: var(--muted)
+    }
+
+    /* details panel */
+    .panel {
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 10px;
+      background: linear-gradient(180deg, #ffffff, #fbfdff);
+      border: 1px solid rgba(2, 6, 23, 0.04)
+    }
+
+    .field {
+      display: flex;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px dashed #eef2f7
+    }
+
+    .field:last-child {
+      border-bottom: 0
+    }
+
+    .field .k {
+      width: 110px;
+      color: var(--muted);
+      font-size: 13px
+    }
+
+    .field .v {
+      font-size: 14px
+    }
+
+    @media (max-width:540px) {
+      .grid {
+        grid-template-columns: 1fr
+      }
+
+      .wrap {
+        padding: 12px
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <header>
+      <div style="display:flex;align-items:center">
+        <h1>行政区划 Demo</h1>
+        <div class="breadcrumb" id="breadcrumb">顶级</div>
+      </div>
+      <div class="controls">
+        <button onclick="goTop()" class="secondary">顶级</button>
+        <button onclick="goBack()">返回</button>
+      </div>
+    </header>
+
+    <section id="listSection">
+      <div class="grid" id="list"></div>
+      <div class="empty" id="empty" style="display:none">暂无数据</div>
+    </section>
+
+    <section id="detailSection" style="display:none">
+      <div class="panel" id="detailPanel"></div>
+    </section>
+  </div>
+
+  <script>
+    // 使用相对路径，与 app.go 中的路由配合
+    const apiBase = '';
+    // 路径栈：每一项 { country, id, name }
+    const path = [];
+
+    const COUNTRY_NAMES = { cn: '中国', jp: '日本' };
+
+    // 顶级入口（显示 中国 / 日本）
+    function goTop() {
+      path.length = 0;
+      renderTopCountries();
+      updateBreadcrumb();
+    }
+
+    function renderTopCountries() {
+      const items = [
+        { id: 'cn', name: '中国' },
+        { id: 'jp', name: '日本' }
+      ];
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      items.forEach(it => list.appendChild(makeCountryCard(it)));
+      document.getElementById('listSection').style.display = '';
+      document.getElementById('detailSection').style.display = 'none';
+    }
+
+    function makeCountryCard(item) {
+      const el = document.createElement('div');
+      el.className = 'card';
+      el.style.cursor = 'pointer';
+      el.onclick = () => openCountry(item.id, item.name);
+      el.innerHTML = `<h3>${escapeHtml(item.name)}</h3><div class="meta"><div class="pill">code: ${escapeHtml(item.id)}</div></div>`;
+      return el;
+    }
+
+    function escapeHtml(s) { return String(s).replace(/[&<>\\\"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])) }
+
+    // 打开国家顶级列表（调用 GET /:country）
+    async function openCountry(country, name) {
+      // reset path to this country as top
+      path.splice(0, path.length, { country, id: '', name: name || COUNTRY_NAMES[country] || country });
+      updateBreadcrumb();
+      try {
+        const res = await fetch(`${apiBase}/${country}`);
+        if (res.status !== 200) throw new Error('请求失败');
+        const data = await res.json();
+        // data 可能是数组，也可能是一个带 children 的根对象
+        let items;
+        if (Array.isArray(data)) {
+          items = data;
+        } else if (data && Array.isArray(data.children)) {
+          items = data.children;
+        } else {
+          items = [];
+        }
+        renderList(items, country);
+      } catch (e) { console.error(e); alert('加载失败') }
+    }
+
+    // 渲染数组列表（children 或 顶级数组）
+    function renderList(items, country) {
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      if (!items || items.length === 0) {
+        document.getElementById('empty').style.display = '';
+      } else {
+        document.getElementById('empty').style.display = 'none';
+        items.forEach(it => list.appendChild(makeRegionCard(it, country)));
+      }
+      document.getElementById('listSection').style.display = '';
+      document.getElementById('detailSection').style.display = 'none';
+    }
+
+    function makeRegionCard(item, country) {
+      const el = document.createElement('div'); el.className = 'card';
+      const idVal = item.Id ?? item.id ?? '';
+      const nameVal = item.Name ?? item.name ?? '';
+      el.style.cursor = 'pointer';
+      el.onclick = () => openRegion(country, idVal, nameVal);
+      el.innerHTML = `
+        <h3>${escapeHtml(nameVal)}</h3>
+        <div class="meta">
+          <div class="pill">level: ${escapeHtml(item.Level ?? item.level ?? '')}</div>
+          <div class="pill">id: ${escapeHtml(idVal)}</div>
+          <div class="pill">parent: ${escapeHtml(item.Parent ?? item.parent ?? '')}</div>
+          <div class="pill">postcode: ${escapeHtml(item.PostCode ?? item.postcode ?? '')}</div>
+        </div>
+        <div class="address">${escapeHtml(item.Address ?? item.address ?? '')}</div>
+      `;
+      return el;
+    }
+
+    function escapeJs(s) { return String(s).replace(/'/g, "\\'") }
+
+    // 打开指定地区（会请求 GET /:country/:id ）
+    async function openRegion(country, id, name) {
+      // 将当前打开的节点加入 path
+      path.push({ country, id, name });
+      updateBreadcrumb();
+      try {
+        const res = await fetch(`${apiBase}/${country}/${id}`);
+        if (res.status !== 200) throw new Error('请求失败');
+        const data = await res.json();
+        // data 是单个对象，包含 children 可选
+        renderRegionDetail(data, country);
+      } catch (e) { console.error(e); alert('加载失败') }
+    }
+
+    // 仅显示详情面板（不会自动展开子级） - 保留备用
+    async function showDetail(country, id) {
+      try {
+        const res = await fetch(`${apiBase}/${country}/${id}`);
+        if (res.status !== 200) throw new Error('请求失败');
+        const data = await res.json();
+        renderRegionDetail(data, country, true);
+      } catch (e) { console.error(e); alert('加载失败') }
+    }
+
+    function renderRegionDetail(data, country, stayOnDetail = false) {
+      const panel = document.getElementById('detailPanel');
+      panel.innerHTML = '';
+      const title = document.createElement('h3'); title.textContent = data.Name || data.name || '';
+      panel.appendChild(title);
+
+      const fields = [['Level', data.Level ?? data.level], ['Id', data.Id ?? data.id], ['Parent', data.Parent ?? data.parent], ['PostCode', data.PostCode ?? data.postcode], ['Spell', data.Spell ?? data.spell], ['Address', data.Address ?? data.address]];
+      fields.forEach(f => {
+        const row = document.createElement('div'); row.className = 'field';
+        const k = document.createElement('div'); k.className = 'k'; k.textContent = f[0];
+        const v = document.createElement('div'); v.className = 'v'; v.textContent = f[1] ?? '';
+        row.appendChild(k); row.appendChild(v); panel.appendChild(row);
+      });
+
+      // children 列表
+      const children = data.children || [];
+      const childTitle = document.createElement('div'); childTitle.style.marginTop = '10px'; childTitle.style.fontSize = '14px'; childTitle.textContent = `下级 (${children.length})`;
+      panel.appendChild(childTitle);
+
+      if (children.length > 0) {
+        const grid = document.createElement('div'); grid.className = 'grid'; grid.style.marginTop = '8px';
+        children.forEach(ch => grid.appendChild(makeRegionCard(ch, country)));
+        panel.appendChild(grid);
+      } else {
+        const e = document.createElement('div'); e.className = 'empty'; e.textContent = '无下级'; panel.appendChild(e);
+      }
+
+      document.getElementById('listSection').style.display = 'none';
+      document.getElementById('detailSection').style.display = '';
+      if (!stayOnDetail) { /* already pushed path before calling */ }
+    }
+
+    function goBack() {
+      if (path.length === 0) { goTop(); return; }
+      // pop current
+      path.pop();
+      if (path.length === 0) { goTop(); return; }
+      navigateToIndex(path.length - 1);
+    }
+
+    // 根据 path 的某个索引导航（点击面包屑）
+    async function navigateToIndex(index) {
+      if (index < 0) { goTop(); return; }
+      const node = path[index];
+      // truncate path
+      path.splice(index + 1);
+      updateBreadcrumb();
+      if (!node) { goTop(); return; }
+      if (node.id === '') {
+        // country top
+        try {
+          const res = await fetch(`${apiBase}/${node.country}`);
+          if (res.status !== 200) throw new Error('请求失败');
+          const data = await res.json();
+          let items;
+          if (Array.isArray(data)) items = data;
+          else if (data && Array.isArray(data.children)) items = data.children;
+          else items = [];
+          renderList(items, node.country);
+        } catch (e) { console.error(e); alert('加载失败') }
+      } else {
+        try {
+          const res = await fetch(`${apiBase}/${node.country}/${node.id}`);
+          if (res.status !== 200) throw new Error('请求失败');
+          const data = await res.json();
+          renderRegionDetail(data, node.country);
+        } catch (e) { console.error(e); alert('加载失败') }
+      }
+    }
+
+    function updateBreadcrumb() {
+      const el = document.getElementById('breadcrumb');
+      // render clickable breadcrumb: 顶级 > 国家 > ...
+      el.innerHTML = '';
+      const top = document.createElement('span'); top.textContent = '顶级'; top.style.cursor = 'pointer'; top.onclick = () => { goTop(); };
+      el.appendChild(top);
+      path.forEach((p, idx) => {
+        const sep = document.createElement('span'); sep.textContent = '  /  '; el.appendChild(sep);
+        const node = document.createElement('span'); node.textContent = p.name || (p.country + (p.id ? ('/' + p.id) : '/顶级'));
+        node.style.cursor = 'pointer'; node.onclick = (e) => { navigateToIndex(idx); };
+        el.appendChild(node);
+      });
+    }
+
+    // 初始显示顶级
+    goTop();
+  </script>
+</body>
+
+</html>
+<!doctype html>
+<script>
+  // 使用相对路径，与 app.go 中的路由配合
+  const apiBase = '';
+  // 路径栈：每一项 { country, id, name }
+  const path = [];
+
+  const COUNTRY_NAMES = { cn: '中国', jp: '日本' };
+
+  // 顶级入口（显示 中国 / 日本）
+  function goTop() {
+    path.length = 0;
+    renderTopCountries();
+    updateBreadcrumb();
+  }
+
+  function renderTopCountries() {
+    const items = [
+      { id: 'cn', name: '中国' },
+      { id: 'jp', name: '日本' }
+    ];
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+    items.forEach(it => list.appendChild(makeCountryCard(it)));
+    document.getElementById('listSection').style.display = '';
+    document.getElementById('detailSection').style.display = 'none';
+  }
+
+  function makeCountryCard(item) {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.style.cursor = 'pointer';
+    el.onclick = () => openCountry(item.id, item.name);
+    el.innerHTML = `<h3>${escapeHtml(item.name)}</h3><div class="meta"><div class="pill">code: ${escapeHtml(item.id)}</div></div>`;
+    return el;
+  }
+
+  function escapeHtml(s) { return String(s).replace(/[&<>\\\"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])) }
+
+  // 打开国家顶级列表（调用 GET /:country）
+  async function openCountry(country, name) {
+    // reset path to this country as top
+    path.splice(0, path.length, { country, id: '', name: name || COUNTRY_NAMES[country] || country });
+    updateBreadcrumb();
+    try {
+      const res = await fetch(`${apiBase}/${country}`);
+      if (res.status !== 200) throw new Error('请求失败');
+      const data = await res.json();
+      // data 可能是数组，也可能是一个带 children 的根对象
+      let items;
+      if (Array.isArray(data)) {
+        items = data;
+      } else if (data && Array.isArray(data.children)) {
+        items = data.children;
+      } else {
+        items = [];
+      }
+      renderList(items, country);
+    } catch (e) { console.error(e); alert('加载失败') }
+  }
+
+  // 渲染数组列表（children 或 顶级数组）
+  function renderList(items, country) {
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+    if (!items || items.length === 0) {
+      document.getElementById('empty').style.display = '';
+    } else {
+      document.getElementById('empty').style.display = 'none';
+      items.forEach(it => list.appendChild(makeRegionCard(it, country)));
+    }
+    document.getElementById('listSection').style.display = '';
+    document.getElementById('detailSection').style.display = 'none';
+  }
+
+  function makeRegionCard(item, country) {
+    const el = document.createElement('div'); el.className = 'card';
+    const idVal = item.Id ?? item.id ?? '';
+    const nameVal = item.Name ?? item.name ?? '';
+    el.style.cursor = 'pointer';
+    el.onclick = () => openRegion(country, idVal, nameVal);
+    el.innerHTML = `
+        <h3>${escapeHtml(nameVal)}</h3>
+        <div class="meta">
+          <div class="pill">level: ${escapeHtml(item.Level ?? item.level ?? '')}</div>
+          <div class="pill">id: ${escapeHtml(idVal)}</div>
+          <div class="pill">parent: ${escapeHtml(item.Parent ?? item.parent ?? '')}</div>
+          <div class="pill">postcode: ${escapeHtml(item.PostCode ?? item.postcode ?? '')}</div>
+        </div>
+        <div class="address">${escapeHtml(item.Address ?? item.address ?? '')}</div>
+      `;
+    return el;
+  }
+
+  function escapeJs(s) { return String(s).replace(/'/g, "\\'") }
+
+  // 打开指定地区（会请求 GET /:country/:id ）
+  async function openRegion(country, id, name) {
+    // 将当前打开的节点加入 path
+    path.push({ country, id, name });
+    updateBreadcrumb();
+    try {
+      const res = await fetch(`${apiBase}/${country}/${id}`);
+      if (res.status !== 200) throw new Error('请求失败');
+      const data = await res.json();
+      // data 是单个对象，包含 children 可选
+      renderRegionDetail(data, country);
+    } catch (e) { console.error(e); alert('加载失败') }
+  }
+
+  // 仅显示详情面板（不会自动展开子级） - 保留备用
+  async function showDetail(country, id) {
+    try {
+      const res = await fetch(`${apiBase}/${country}/${id}`);
+      if (res.status !== 200) throw new Error('请求失败');
+      const data = await res.json();
+      renderRegionDetail(data, country, true);
+    } catch (e) { console.error(e); alert('加载失败') }
+  }
+
+  function renderRegionDetail(data, country, stayOnDetail = false) {
+    const panel = document.getElementById('detailPanel');
+    panel.innerHTML = '';
+    const title = document.createElement('h3'); title.textContent = data.Name || data.name || '';
+    panel.appendChild(title);
+
+    const fields = [['Level', data.Level ?? data.level], ['Id', data.Id ?? data.id], ['Parent', data.Parent ?? data.parent], ['PostCode', data.PostCode ?? data.postcode], ['Spell', data.Spell ?? data.spell], ['Address', data.Address ?? data.address]];
+    fields.forEach(f => {
+      const row = document.createElement('div'); row.className = 'field';
+      const k = document.createElement('div'); k.className = 'k'; k.textContent = f[0];
+      const v = document.createElement('div'); v.className = 'v'; v.textContent = f[1] ?? '';
+      row.appendChild(k); row.appendChild(v); panel.appendChild(row);
+    });
+
+    // children 列表
+    const children = data.children || [];
+    const childTitle = document.createElement('div'); childTitle.style.marginTop = '10px'; childTitle.style.fontSize = '14px'; childTitle.textContent = `下级 (${children.length})`;
+    panel.appendChild(childTitle);
+
+    if (children.length > 0) {
+      const grid = document.createElement('div'); grid.className = 'grid'; grid.style.marginTop = '8px';
+      children.forEach(ch => grid.appendChild(makeRegionCard(ch, country)));
+      panel.appendChild(grid);
+    } else {
+      const e = document.createElement('div'); e.className = 'empty'; e.textContent = '无下级'; panel.appendChild(e);
+    }
+
+    document.getElementById('listSection').style.display = 'none';
+    document.getElementById('detailSection').style.display = '';
+    if (!stayOnDetail) { /* already pushed path before calling */ }
+  }
+
+  function goBack() {
+    if (path.length === 0) { goTop(); return; }
+    // pop current
+    path.pop();
+    if (path.length === 0) { goTop(); return; }
+    navigateToIndex(path.length - 1);
+  }
+
+  // 根据 path 的某个索引导航（点击面包屑）
+  async function navigateToIndex(index) {
+    if (index < 0) { goTop(); return; }
+    const node = path[index];
+    // truncate path
+    path.splice(index + 1);
+    updateBreadcrumb();
+    if (!node) { goTop(); return; }
+    if (node.id === '') {
+      // country top
+      try {
+        const res = await fetch(`${apiBase}/${node.country}`);
+        if (res.status !== 200) throw new Error('请求失败');
+        const data = await res.json();
+        let items;
+        if (Array.isArray(data)) items = data;
+        else if (data && Array.isArray(data.children)) items = data.children;
+        else items = [];
+        renderList(items, node.country);
+      } catch (e) { console.error(e); alert('加载失败') }
+    } else {
+      try {
+        const res = await fetch(`${apiBase}/${node.country}/${node.id}`);
+        if (res.status !== 200) throw new Error('请求失败');
+        const data = await res.json();
+        renderRegionDetail(data, node.country);
+      } catch (e) { console.error(e); alert('加载失败') }
+    }
+  }
+
+  function updateBreadcrumb() {
+    const el = document.getElementById('breadcrumb');
+    // render clickable breadcrumb: 顶级 > 国家 > ...
+    el.innerHTML = '';
+    const top = document.createElement('span'); top.textContent = '顶级'; top.style.cursor = 'pointer'; top.onclick = () => { goTop(); };
+    el.appendChild(top);
+    path.forEach((p, idx) => {
+      const sep = document.createElement('span'); sep.textContent = '  /  '; el.appendChild(sep);
+      const node = document.createElement('span'); node.textContent = p.name || (p.country + (p.id ? ('/' + p.id) : '/顶级'));
+      node.style.cursor = 'pointer'; node.onclick = (e) => { navigateToIndex(idx); };
+      el.appendChild(node);
+    });
+  }
+
+  // 初始显示顶级
+  goTop();
+</script>
+</div>
+</header>
+
+<section id="listSection">
+  <div class="grid" id="list"></div>
+  <div class="empty" id="empty" style="display:none">暂无数据</div>
+</section>
+
+<section id="detailSection" style="display:none">
+  <div class="panel" id="detailPanel"></div>
+</section>
+</div>
+
+<script>
+  // 使用相对路径，与 app.go 中的路由配合
+  const apiBase = '';
+  // 历史栈：每一项 { country, id }
+  const historyStack = [];
+  let current = null; // { country, id }
+
+  // 顶级入口（显示 中国 / 日本）
+  function goTop() {
+    historyStack.length = 0;
+    current = null;
+    renderTopCountries();
+    updateBreadcrumb();
+  }
+
+  function renderTopCountries() {
+    const items = [
+      { id: 'cn', name: '中国' },
+      { id: 'jp', name: '日本' }
+    ];
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+    items.forEach(it => list.appendChild(makeCountryCard(it)));
+    document.getElementById('listSection').style.display = '';
+    document.getElementById('detailSection').style.display = 'none';
+  }
+
+  function makeCountryCard(item) {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML = `<h3>${escapeHtml(item.name)}</h3><div class="meta"><div class="pill">code: ${escapeHtml(item.id)}</div></div><div class="actions"><button class="link" onclick="openCountry('${item.id}')">查看</button></div>`;
+    return el;
+  }
+
+  function escapeHtml(s) { return String(s).replace(/[&<>\\\"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c])) }
+
+  // 打开国家顶级列表（调用 GET /:country）
+  async function openCountry(country) {
+    pushHistory();
+    current = { country, id: '' };
+    updateBreadcrumb();
+    try {
+      const res = await fetch(`${apiBase}/${country}`);
+      if (res.status !== 200) throw new Error('请求失败');
+      const data = await res.json();
+      // data 可能是数组，也可能是一个带 children 的根对象
+      let items;
+      if (Array.isArray(data)) {
+        items = data;
+      } else if (data && Array.isArray(data.children)) {
+        items = data.children;
+      } else {
+        items = [];
+      }
+      renderList(items, country);
+    } catch (e) { console.error(e); alert('加载失败') }
+  }
+
+  // 渲染数组列表（children 或 顶级数组）
+  function renderList(items, country) {
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+    if (!items || items.length === 0) {
+      document.getElementById('empty').style.display = '';
+    } else {
+      document.getElementById('empty').style.display = 'none';
+      items.forEach(it => list.appendChild(makeRegionCard(it, country)));
+    }
+    document.getElementById('listSection').style.display = '';
+    document.getElementById('detailSection').style.display = 'none';
+  }
+
+  function makeRegionCard(item, country) {
+    const el = document.createElement('div'); el.className = 'card';
+    const childrenCount = (item.children && item.children.length) || 0;
+    el.innerHTML = `
+        <h3>${escapeHtml(item.Name || item.name || '')}</h3>
+        <div class="meta">
+          <div class="pill">level: ${escapeHtml(item.Level ?? item.level ?? '')}</div>
+          <div class="pill">id: ${escapeHtml(item.Id ?? item.id ?? '')}</div>
+          <div class="pill">parent: ${escapeHtml(item.Parent ?? item.parent ?? '')}</div>
+          <div class="pill">postcode: ${escapeHtml(item.PostCode ?? item.postcode ?? '')}</div>
+        </div>
+        <div class="address">${escapeHtml(item.Address ?? item.address ?? '')}</div>
+        <div class="actions">
+          <button class="link" onclick="openRegion('${country}','${escapeJs(item.Id ?? item.id ?? '')}')">查看下一级 (${childrenCount})</button>
+          <button class="link" onclick="showDetail('${country}','${escapeJs(item.Id ?? item.id ?? '')}')">详情</button>
+        </div>
+      `;
+    return el;
+  }
+
+  function escapeJs(s) { return String(s).replace(/'/g, "\\'") }
+
+  // 打开指定地区（会请求 GET /:country/:id ）
+  async function openRegion(country, id) {
+    pushHistory();
+    current = { country, id };
+    updateBreadcrumb();
+    try {
+      const res = await fetch(`${apiBase}/${country}/${id}`);
+      if (res.status !== 200) throw new Error('请求失败');
+      const data = await res.json();
+      // data 应为单个对象（包含 children 可选）
+      renderRegionDetail(data, country);
+    } catch (e) { console.error(e); alert('加载失败') }
+  }
+
+  // 仅显示详情面板（不会自动展开子级）
+  async function showDetail(country, id) {
+    try {
+      const res = await fetch(`${apiBase}/${country}/${id}`);
+      if (res.status !== 200) throw new Error('请求失败');
+      const data = await res.json();
+      renderRegionDetail(data, country, true);
+    } catch (e) { console.error(e); alert('加载失败') }
+  }
+
+  function renderRegionDetail(data, country, stayOnDetail = false) {
+    const panel = document.getElementById('detailPanel');
+    panel.innerHTML = '';
+    const title = document.createElement('h3'); title.textContent = data.Name || data.name || '';
+    panel.appendChild(title);
+
+    const fields = [['Level', data.Level ?? data.level], ['Id', data.Id ?? data.id], ['Parent', data.Parent ?? data.parent], ['PostCode', data.PostCode ?? data.postcode], ['Spell', data.Spell ?? data.spell], ['Address', data.Address ?? data.address]];
+    fields.forEach(f => {
+      const row = document.createElement('div'); row.className = 'field';
+      const k = document.createElement('div'); k.className = 'k'; k.textContent = f[0];
+      const v = document.createElement('div'); v.className = 'v'; v.textContent = f[1] ?? '';
+      row.appendChild(k); row.appendChild(v); panel.appendChild(row);
+    });
+
+    // children 列表
+    const children = data.children || [];
+    const childTitle = document.createElement('div'); childTitle.style.marginTop = '10px'; childTitle.style.fontSize = '14px'; childTitle.textContent = `下级 (${children.length})`;
+    panel.appendChild(childTitle);
+
+    if (children.length > 0) {
+      const grid = document.createElement('div'); grid.className = 'grid'; grid.style.marginTop = '8px';
+      children.forEach(ch => grid.appendChild(makeRegionCard(ch, country)));
+      panel.appendChild(grid);
+    } else {
+      const e = document.createElement('div'); e.className = 'empty'; e.textContent = '无下级'; panel.appendChild(e);
+    }
+
+    document.getElementById('listSection').style.display = 'none';
+    document.getElementById('detailSection').style.display = '';
+    if (!stayOnDetail) { /* already pushed history before calling */ }
+  }
+
+  function pushHistory() {
+    if (current) historyStack.push({ ...current });
+    else historyStack.push(null);
+  }
+
+  function goBack() {
+    if (historyStack.length === 0) { goTop(); return; }
+    const prev = historyStack.pop();
+    if (!prev) { goTop(); return; }
+    // prev may be {country, id}
+    if (prev.id === '') {
+      // show country top
+      openCountry(prev.country);
+    } else {
+      openRegion(prev.country, prev.id);
+    }
+  }
+
+  function updateBreadcrumb() {
+    const el = document.getElementById('breadcrumb');
+    if (!current) el.textContent = '顶级';
+    else if (current.country && !current.id) el.textContent = `${current.country} / 顶级`;
+    else el.textContent = `${current.country} / ${current.id}`;
+  }
+
+  // 初始显示顶级
+  goTop();
+</script>
+</body>
+
+</html>

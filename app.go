@@ -11,6 +11,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+//go:embed demo.html
+var demoHtml string
+
 //go:embed data/jp.csv
 var jpRaw string
 
@@ -153,6 +156,9 @@ func main() {
 	// 添加跨域中间件
 	r.Use(cors.Default())
 
+	r.GET("/", func(c *gin.Context) {
+		c.Data(200, "text/html; charset=utf-8", []byte(demoHtml))
+	})
 	// 路由：支持 /:country 和 /:country/:id
 	r.GET("/:country", ginGetGeoData)
 	r.GET("/:country/:id", ginGetGeoData)
