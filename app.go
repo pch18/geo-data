@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	"github.com/gin-contrib/cors"
@@ -65,17 +66,13 @@ func makeGeoData(rawData string) map[string]GeoData {
 		name := strings.TrimSpace(fields[2])
 		spell := strings.TrimSpace(fields[3])
 		address := strings.TrimSpace(fields[4])
-		post := strings.TrimSpace(fields[5])
+		level, _ := strconv.Atoi(strings.TrimSpace(fields[5]))
+		post := strings.TrimSpace(fields[6])
 
 		parentData, parentExists := geoDataMapId[parent]
 		oldData, oldDataExists := geoDataMapId[id]
 
-		level := 1
-		if parentExists {
-			level = parentData.Level + 1
-		}
-
-		children := []GeoData{}
+		var children []GeoData
 		if oldDataExists {
 			children = oldData.Children
 		}
