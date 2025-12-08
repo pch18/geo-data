@@ -99,6 +99,6 @@ res3 = x.map(a => {
 })
 
 res = [...res1, ...res2, ...res3]
-const csv = res.map(a => `${a.id},${a.parent || ''},${a.name},${a.yomi},${a.address || ''},${a.post || ''}`).join('\n')
+const csv = res.map(a => `${a.id},${a.parent || ''},${a.name},${a.yomi},${a.address || ''},${a.level},${a.post || ''}`).join('\n')
 
 require(`fs`).writeFileSync(`../data/jp.csv`, csv)
