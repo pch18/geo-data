@@ -33,7 +33,7 @@ var postData = map[string]map[string][]GeoData{
 type GeoData struct {
 	Level    int       `json:"level"`              // 地区级别
 	Id       string    `json:"id"`                 // 地区id
-	Parent   string    `json:"parent"`             // 上级地区id
+	Parents  []GeoData `json:"parents,omitempty"`  // 祖先地区
 	PostCode string    `json:"postcode"`           // 邮政编码
 	Name     string    `json:"name"`               // 地区名称
 	Address  string    `json:"address"`            // 地区全称
@@ -61,13 +61,13 @@ func makeGeoData(rawData string) map[string]GeoData {
 	for _, line := range lines {
 		fields := strings.Split(line, ",")
 		id := strings.TrimSpace(fields[0])
-		parent := strings.TrimSpace(fields[1])
+		parentId := strings.TrimSpace(fields[1])
 		name := strings.TrimSpace(fields[2])
 		spell := strings.TrimSpace(fields[3])
 		address := strings.TrimSpace(fields[4])
 		post := strings.TrimSpace(fields[5])
 
-		parentData, parentExists := geoDataMapId[parent]
+		parentData, parentExists := geoDataMapId[parentId]
 		oldData, oldDataExists := geoDataMapId[id]
 
 		level := 1
@@ -80,10 +80,22 @@ func makeGeoData(rawData string) map[string]GeoData {
 			children = oldData.Children
 		}
 
+		var parents []GeoData
+		if parentExists && parentData.Level != 0 { // 排除0这一层
+			parents = append(parentData.Parents, GeoData{
+				Id:       parentData.Id,
+				Level:    parentData.Level,
+				PostCode: parentData.PostCode,
+				Address:  parentData.Address,
+				Name:     parentData.Name,
+				Spell:    parentData.Spell,
+			})
+		}
+
 		cur := GeoData{
 			Id:       id,
 			Level:    level,
-			Parent:   parent,
+			Parents:  parents,
 			PostCode: post,
 			Address:  address,
 			Name:     name,
@@ -93,11 +105,15 @@ func makeGeoData(rawData string) map[string]GeoData {
 
 		geoDataMapId[id] = cur
 
+		// parentData中Children数组的GeoData不再存Parents、Children
+		cur.Parents = nil
+		cur.Children = nil
+
 		if parentExists {
 			parentData.Children = append(parentData.Children, cur)
-			geoDataMapId[parent] = parentData
+			geoDataMapId[parentId] = parentData
 		} else {
-			geoDataMapId[parent] = GeoData{
+			geoDataMapId[parentId] = GeoData{
 				Level:    level - 1,
 				Children: []GeoData{cur},
 			}
