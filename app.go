@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 
 	"github.com/gin-contrib/cors"
@@ -33,7 +34,7 @@ var postData = map[string]map[string][]GeoData{
 type GeoData struct {
 	Level    int       `json:"level"`              // 地区级别
 	Id       string    `json:"id"`                 // 地区id
-	Parent   string    `json:"parent"`             // 上级地区id
+	Parents  []GeoData `json:"parents,omitempty"`  // 祖先地区
 	PostCode string    `json:"postcode"`           // 邮政编码
 	Name     string    `json:"name"`               // 地区名称
 	Address  string    `json:"address"`            // 地区全称
@@ -61,29 +62,31 @@ func makeGeoData(rawData string) map[string]GeoData {
 	for _, line := range lines {
 		fields := strings.Split(line, ",")
 		id := strings.TrimSpace(fields[0])
-		parent := strings.TrimSpace(fields[1])
+		parentId := strings.TrimSpace(fields[1])
 		name := strings.TrimSpace(fields[2])
 		spell := strings.TrimSpace(fields[3])
 		address := strings.TrimSpace(fields[4])
 		post := strings.TrimSpace(fields[5])
 
-		parentData, parentExists := geoDataMapId[parent]
+		parentData, parentExists := geoDataMapId[parentId]
 		oldData, oldDataExists := geoDataMapId[id]
 
-		level := 1
-		if parentExists {
-			level = parentData.Level + 1
-		}
-
-		children := []GeoData{}
+		var children []GeoData
 		if oldDataExists {
 			children = oldData.Children
 		}
 
+		// parents信息可能不完整
+		var parents []GeoData
+		if parentId != "" {
+			parents = append(parentData.Parents, GeoData{
+				Id: parentData.Id,
+			})
+		}
+
 		cur := GeoData{
 			Id:       id,
-			Level:    level,
-			Parent:   parent,
+			Parents:  parents,
 			PostCode: post,
 			Address:  address,
 			Name:     name,
@@ -93,15 +96,48 @@ func makeGeoData(rawData string) map[string]GeoData {
 
 		geoDataMapId[id] = cur
 
+		// parentData中Children数组的GeoData不再存Parents、Children
+		cur.Parents = nil
+		cur.Children = nil
+
 		if parentExists {
 			parentData.Children = append(parentData.Children, cur)
-			geoDataMapId[parent] = parentData
 		} else {
-			geoDataMapId[parent] = GeoData{
-				Level:    level - 1,
-				Children: []GeoData{cur},
+			parentData.Children = []GeoData{cur}
+		}
+		geoDataMapId[parentId] = parentData
+	}
+
+	// 维护Parents和level
+	for k, data := range geoDataMapId {
+		// 维护当前数据的Parents以及Parent的Level
+		var parents []GeoData
+		for _, p := range data.Parents {
+			if parentData, ok := geoDataMapId[p.Id]; ok {
+				// parentData中Children数组的GeoData不再存Parents、Children
+				parentData.Level = len(parentData.Parents) + 1
+				parentData.Parents = nil
+				parentData.Children = nil
+				parents = append(parents, parentData)
 			}
 		}
+
+		// 保证parents按照Level 升序
+		sort.Slice(parents, func(i, j int) bool {
+			return parents[i].Level < parents[j].Level
+		})
+
+		data.Parents = parents
+
+		// 维护当前数据的Level
+		data.Level = len(parents) + 1
+
+		// 维护当前数据Children的Level
+		for i := range data.Children {
+			data.Children[i].Level = data.Level + 1
+		}
+
+		geoDataMapId[k] = data
 	}
 
 	return geoDataMapId
