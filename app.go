@@ -30,24 +30,29 @@ var postData = map[string]map[string][]*GeoData{
 	"cn": makePostData(geoData["cn"]),
 }
 
+type GeoNode struct {
+	Level    int    `json:"level"`    // 地区级别
+	Id       string `json:"id"`       // 地区id
+	Parent   string `json:"parent"`   // 上级地区id
+	ParentId string `json:"parentId"` // 上级地区id
+	PostCode string `json:"postcode"` // 邮政编码
+	Name     string `json:"name"`     // 地区名称
+	Address  string `json:"address"`  // 地区全称
+	Spell    string `json:"spell"`    // 地区拼音或读音
+}
+
 type GeoData struct {
-	Level    int        `json:"level"`              // 地区级别
-	Id       string     `json:"id"`                 // 地区id
-	Parent   string     `json:"parent"`             // 上级地区id
-	Parents  []*GeoData `json:"parents,omitempty"`  // 祖先地区 只存储Parent的副本，不含Parents,Children
-	PostCode string     `json:"postcode"`           // 邮政编码
-	Name     string     `json:"name"`               // 地区名称
-	Address  string     `json:"address"`            // 地区全称
-	Spell    string     `json:"spell"`              // 地区拼音或读音
-	Children []*GeoData `json:"children,omitempty"` // 子级地区
+	Current  *GeoNode   `json:"current,omitempty"`  // 当前节点
+	Parents  []*GeoNode `json:"parents,omitempty"`  // 祖先地区 只存储Parent的副本，不含Parents,Children
+	Children []*GeoNode `json:"children,omitempty"` // 子级地区
 }
 
 func makePostData(data map[string]*GeoData) map[string][]*GeoData {
 	postDataMap := make(map[string][]*GeoData)
 
 	for _, data := range data {
-		if data.PostCode != "" {
-			postDataMap[data.PostCode] = append(postDataMap[data.PostCode], data)
+		if data.Current.PostCode != "" {
+			postDataMap[data.Current.PostCode] = append(postDataMap[data.Current.PostCode], data)
 		}
 	}
 
@@ -57,7 +62,7 @@ func makePostData(data map[string]*GeoData) map[string][]*GeoData {
 func makeGeoData(rawData string) map[string]*GeoData {
 	lines := strings.Split(strings.TrimSpace(rawData), "\n")
 
-	geoDataMapId := make(map[string]*GeoData)
+	geoDataMap := make(map[string]*GeoData)
 
 	var roots []*GeoData
 	for _, line := range lines {
@@ -69,35 +74,34 @@ func makeGeoData(rawData string) map[string]*GeoData {
 		address := strings.TrimSpace(fields[4])
 		post := strings.TrimSpace(fields[5])
 
-		parentData, parentExists := geoDataMapId[parentId]
-		oldData, oldDataExists := geoDataMapId[id]
-
-		var children []*GeoData
-		if oldDataExists {
-			children = oldData.Children
-		}
-
-		cur := &GeoData{
-			Id:       id,
-			Parent:   parentId,
-			PostCode: post,
-			Address:  address,
-			Name:     name,
-			Spell:    spell,
-			Children: children,
-		}
-
-		geoDataMapId[id] = cur
-
-		if parentExists {
-			parentData.Children = append(parentData.Children, cur)
-			geoDataMapId[parentId] = parentData
-		} else {
-			geoDataMapId[parentId] = &GeoData{
-				Id:       parentId,
-				Children: []*GeoData{cur},
+		// 获取或创建当前节点
+		cur, exists := geoDataMap[id]
+		if !exists {
+			cur = &GeoData{
+				Current: &GeoNode{Id: id},
 			}
+			geoDataMap[id] = cur
 		}
+
+		// 更新当前节点信息
+		cur.Current.Parent = parentId
+		cur.Current.ParentId = parentId
+		cur.Current.Name = name
+		cur.Current.Spell = spell
+		cur.Current.Address = address
+		cur.Current.PostCode = post
+
+		parentData, parentExists := geoDataMap[parentId]
+		if !parentExists {
+			parentData = &GeoData{
+				Current: &GeoNode{
+					Id: parentId,
+				},
+			}
+			geoDataMap[parentId] = parentData
+		}
+
+		parentData.Children = append(parentData.Children, cur.Current)
 
 		if parentId == "" {
 			roots = append(roots, cur)
@@ -106,14 +110,18 @@ func makeGeoData(rawData string) map[string]*GeoData {
 
 	// 构建Parents链和计算Level
 	for _, root := range roots {
-		buildGeoHierarchy(root, 1, []*GeoData{})
+		buildGeoHierarchy(root, 1, []*GeoNode{}, geoDataMap)
 	}
-	return geoDataMapId
+	return geoDataMap
 }
 
-func buildGeoHierarchy(cur *GeoData, level int, ancestors []*GeoData) {
+func buildGeoHierarchy(cur *GeoData, level int, ancestors []*GeoNode, geoDataMap map[string]*GeoData) {
+	if cur == nil {
+		return
+	}
+
 	// 设置level和parents
-	cur.Level = level
+	cur.Current.Level = level
 	cur.Parents = ancestors
 
 	if len(cur.Children) == 0 {
@@ -121,35 +129,14 @@ func buildGeoHierarchy(cur *GeoData, level int, ancestors []*GeoData) {
 	}
 
 	// 设置新的newAncestors
-	newAncestors := make([]*GeoData, len(ancestors)+1)
+	newAncestors := make([]*GeoNode, len(ancestors)+1)
 	copy(newAncestors, ancestors)
-	newAncestors[len(ancestors)] = &GeoData{
-		Id:       cur.Id,
-		Level:    cur.Level,
-		Parent:   cur.Parent,
-		PostCode: cur.PostCode,
-		Address:  cur.Address,
-		Name:     cur.Name,
-		Spell:    cur.Spell,
-	}
+	newAncestors[len(ancestors)] = cur.Current
 
 	// 递归处理子节点
-	var newChildren []*GeoData // 只保留基础信息
 	for _, c := range cur.Children {
-		buildGeoHierarchy(c, cur.Level+1, newAncestors)
-		newChildren = append(newChildren, &GeoData{
-			Id:       c.Id,
-			Level:    c.Level,
-			Parent:   c.Parent,
-			PostCode: c.PostCode,
-			Address:  c.Address,
-			Name:     c.Name,
-			Spell:    c.Spell,
-		})
+		buildGeoHierarchy(geoDataMap[c.Id], cur.Current.Level+1, newAncestors, geoDataMap)
 	}
-
-	// 设置children
-	cur.Children = newChildren
 }
 
 func ginGetGeoData(c *gin.Context) {
