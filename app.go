@@ -108,17 +108,25 @@ func makeGeoData(rawData string) map[string]*GeoData {
 		}
 	}
 
+	// 检查循环引用
+	visited := make(map[string]bool)
 	// 构建Parents链和计算Level
 	for _, root := range roots {
-		buildGeoHierarchy(root, 1, []*GeoNode{}, geoDataMap)
+		buildGeoHierarchy(root, 1, []*GeoNode{}, geoDataMap, visited)
 	}
 	return geoDataMap
 }
 
-func buildGeoHierarchy(cur *GeoData, level int, ancestors []*GeoNode, geoDataMap map[string]*GeoData) {
+func buildGeoHierarchy(cur *GeoData, level int, ancestors []*GeoNode, geoDataMap map[string]*GeoData, visited map[string]bool) {
 	if cur == nil {
 		return
 	}
+
+	// 检查循环引用
+	if visited[cur.Current.Id] {
+		return
+	}
+	visited[cur.Current.Id] = true
 
 	// 设置level和parents
 	cur.Current.Level = level
@@ -135,7 +143,9 @@ func buildGeoHierarchy(cur *GeoData, level int, ancestors []*GeoNode, geoDataMap
 
 	// 递归处理子节点
 	for _, c := range cur.Children {
-		buildGeoHierarchy(geoDataMap[c.Id], cur.Current.Level+1, newAncestors, geoDataMap)
+		if childData, ok := geoDataMap[c.Id]; ok {
+			buildGeoHierarchy(childData, level+1, newAncestors, geoDataMap, visited)
+		}
 	}
 }
 
