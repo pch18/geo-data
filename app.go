@@ -33,7 +33,6 @@ var postData = map[string]map[string][]*GeoData{
 type GeoNode struct {
 	Level    int    `json:"level"`    // 地区级别
 	Id       string `json:"id"`       // 地区id
-	Parent   string `json:"parent"`   // 上级地区id
 	ParentId string `json:"parentId"` // 上级地区id
 	PostCode string `json:"postcode"` // 邮政编码
 	Name     string `json:"name"`     // 地区名称
@@ -84,7 +83,6 @@ func makeGeoData(rawData string) map[string]*GeoData {
 		}
 
 		// 更新当前节点信息
-		cur.Current.Parent = parentId
 		cur.Current.ParentId = parentId
 		cur.Current.Name = name
 		cur.Current.Spell = spell
