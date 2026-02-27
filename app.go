@@ -20,91 +20,131 @@ var jpRaw string
 //go:embed data/cn.csv
 var cnRaw string
 
-var geoData = map[string]map[string]GeoData{
+var geoData = map[string]map[string]*GeoData{
 	"jp": makeGeoData(jpRaw),
 	"cn": makeGeoData(cnRaw),
 }
 
-var postData = map[string]map[string][]GeoData{
+var postData = map[string]map[string][]*GeoData{
 	"jp": makePostData(geoData["jp"]),
 	"cn": makePostData(geoData["cn"]),
 }
 
-type GeoData struct {
-	Level    int       `json:"level"`              // 地区级别
-	Id       string    `json:"id"`                 // 地区id
-	Parent   string    `json:"parent"`             // 上级地区id
-	PostCode string    `json:"postcode"`           // 邮政编码
-	Name     string    `json:"name"`               // 地区名称
-	Address  string    `json:"address"`            // 地区全称
-	Spell    string    `json:"spell"`              // 地区拼音或读音
-	Children []GeoData `json:"children,omitempty"` // 子级地区
+type GeoNode struct {
+	Level    int    `json:"level"`    // 地区级别
+	Id       string `json:"id"`       // 地区id
+	ParentId string `json:"parentId"` // 上级地区id
+	PostCode string `json:"postcode"` // 邮政编码
+	Name     string `json:"name"`     // 地区名称
+	Address  string `json:"address"`  // 地区全称
+	Spell    string `json:"spell"`    // 地区拼音或读音
 }
 
-func makePostData(data map[string]GeoData) map[string][]GeoData {
-	postDataMap := make(map[string][]GeoData)
+type GeoData struct {
+	Current  *GeoNode   `json:"current,omitempty"`  // 当前节点
+	Parents  []*GeoNode `json:"parents,omitempty"`  // 祖先地区 只存储Parent的副本，不含Parents,Children
+	Children []*GeoNode `json:"children,omitempty"` // 子级地区
+}
+
+func makePostData(data map[string]*GeoData) map[string][]*GeoData {
+	postDataMap := make(map[string][]*GeoData)
 
 	for _, data := range data {
-		if data.PostCode != "" {
-			postDataMap[data.PostCode] = append(postDataMap[data.PostCode], data)
+		if data.Current.PostCode != "" {
+			postDataMap[data.Current.PostCode] = append(postDataMap[data.Current.PostCode], data)
 		}
 	}
 
 	return postDataMap
 }
 
-func makeGeoData(rawData string) map[string]GeoData {
+func makeGeoData(rawData string) map[string]*GeoData {
 	lines := strings.Split(strings.TrimSpace(rawData), "\n")
 
-	geoDataMapId := make(map[string]GeoData)
+	geoDataMap := make(map[string]*GeoData)
 
+	var roots []*GeoData
 	for _, line := range lines {
 		fields := strings.Split(line, ",")
 		id := strings.TrimSpace(fields[0])
-		parent := strings.TrimSpace(fields[1])
+		parentId := strings.TrimSpace(fields[1])
 		name := strings.TrimSpace(fields[2])
 		spell := strings.TrimSpace(fields[3])
 		address := strings.TrimSpace(fields[4])
 		post := strings.TrimSpace(fields[5])
 
-		parentData, parentExists := geoDataMapId[parent]
-		oldData, oldDataExists := geoDataMapId[id]
-
-		level := 1
-		if parentExists {
-			level = parentData.Level + 1
-		}
-
-		children := []GeoData{}
-		if oldDataExists {
-			children = oldData.Children
-		}
-
-		cur := GeoData{
-			Id:       id,
-			Level:    level,
-			Parent:   parent,
-			PostCode: post,
-			Address:  address,
-			Name:     name,
-			Spell:    spell,
-			Children: children,
-		}
-
-		geoDataMapId[id] = cur
-
-		if parentExists {
-			parentData.Children = append(parentData.Children, cur)
-			geoDataMapId[parent] = parentData
-		} else {
-			geoDataMapId[parent] = GeoData{
-				Level:    level - 1,
-				Children: []GeoData{cur},
+		// 获取或创建当前节点
+		cur, exists := geoDataMap[id]
+		if !exists {
+			cur = &GeoData{
+				Current: &GeoNode{Id: id},
 			}
+			geoDataMap[id] = cur
+		}
+
+		// 更新当前节点信息
+		cur.Current.ParentId = parentId
+		cur.Current.Name = name
+		cur.Current.Spell = spell
+		cur.Current.Address = address
+		cur.Current.PostCode = post
+
+		parentData, parentExists := geoDataMap[parentId]
+		if !parentExists {
+			parentData = &GeoData{
+				Current: &GeoNode{
+					Id: parentId,
+				},
+			}
+			geoDataMap[parentId] = parentData
+		}
+
+		parentData.Children = append(parentData.Children, cur.Current)
+
+		if parentId == "" {
+			roots = append(roots, cur)
 		}
 	}
 
-	return geoDataMapId
+	// 检查循环引用
+	visited := make(map[string]bool)
+	// 构建Parents链和计算Level
+	for _, root := range roots {
+		buildGeoHierarchy(root, 1, []*GeoNode{}, geoDataMap, visited)
+	}
+	return geoDataMap
+}
+
+func buildGeoHierarchy(cur *GeoData, level int, ancestors []*GeoNode, geoDataMap map[string]*GeoData, visited map[string]bool) {
+	if cur == nil {
+		return
+	}
+
+	// 检查循环引用
+	if visited[cur.Current.Id] {
+		return
+	}
+	visited[cur.Current.Id] = true
+
+	// 设置level和parents
+	cur.Current.Level = level
+	cur.Parents = ancestors
+
+	if len(cur.Children) == 0 {
+		return
+	}
+
+	// 设置新的newAncestors
+	newAncestors := make([]*GeoNode, len(ancestors)+1)
+	copy(newAncestors, ancestors)
+	newAncestors[len(ancestors)] = cur.Current
+
+	// 递归处理子节点
+	for _, c := range cur.Children {
+		if childData, ok := geoDataMap[c.Id]; ok {
+			buildGeoHierarchy(childData, level+1, newAncestors, geoDataMap, visited)
+		}
+	}
 }
 
 func ginGetGeoData(c *gin.Context) {
