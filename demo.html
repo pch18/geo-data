@@ -222,15 +222,8 @@
         const res = await fetch(`${apiBase}/${country}`);
         if (res.status !== 200) throw new Error('请求失败');
         const data = await res.json();
-        // data 可能是数组，也可能是一个带 children 的根对象
-        let items;
-        if (Array.isArray(data)) {
-          items = data;
-        } else if (data && Array.isArray(data.children)) {
-          items = data.children;
-        } else {
-          items = [];
-        }
+        // data 为 GeoData，children 为顶级列表
+        const items = (data && Array.isArray(data.children)) ? data.children : [];
         renderList(items, country);
       } catch (e) { console.error(e); alert('加载失败') }
     }
@@ -251,24 +244,25 @@
 
     function makeRegionCard(item, country) {
       const el = document.createElement('div'); el.className = 'card';
-      const idVal = item.Id ?? item.id ?? '';
-      const nameVal = item.Name ?? item.name ?? '';
+      const idVal = item.id ?? '';
+      const nameVal = item.name ?? '';
       el.style.cursor = 'pointer';
       el.onclick = () => openRegion(country, idVal, nameVal);
       el.innerHTML = `
         <h3>${escapeHtml(nameVal)}</h3>
         <div class="meta">
-          <div class="pill">level: ${escapeHtml(item.Level ?? item.level ?? '')}</div>
+          <div class="pill">level: ${escapeHtml(item.level ?? '')}</div>
           <div class="pill">id: ${escapeHtml(idVal)}</div>
-          <div class="pill">parent: ${escapeHtml(item.Parent ?? item.parent ?? '')}</div>
-          <div class="pill">postcode: ${escapeHtml(item.PostCode ?? item.postcode ?? '')}</div>
+          <div class="pill">parentId: ${escapeHtml(item.parentId ?? '')}</div>
+          <div class="pill">postcode: ${escapeHtml(item.postcode ?? '')}</div>
         </div>
-        <div class="address">${escapeHtml(item.Address ?? item.address ?? '')}</div>
+        <div class="address">${escapeHtml(item.address ?? '')}</div>
       `;
       return el;
     }
 
     function escapeJs(s) { return String(s).replace(/'/g, "\\'") }
+    function displayVal(v) { return (v === undefined || v === null || v === '') ? '-' : v }
 
     // 打开指定地区（会请求 GET /:country/:id ）
     async function openRegion(country, id, name) {
@@ -279,7 +273,6 @@
         const res = await fetch(`${apiBase}/${country}/${id}`);
         if (res.status !== 200) throw new Error('请求失败');
         const data = await res.json();
-        // data 是单个对象，包含 children 可选
         renderRegionDetail(data, country);
       } catch (e) { console.error(e); alert('加载失败') }
     }
@@ -297,10 +290,18 @@
     function renderRegionDetail(data, country, stayOnDetail = false) {
       const panel = document.getElementById('detailPanel');
       panel.innerHTML = '';
-      const title = document.createElement('h3'); title.textContent = data.Name || data.name || '';
+      const cur = data && data.current ? data.current : {};
+      const title = document.createElement('h3'); title.textContent = cur.name || '';
       panel.appendChild(title);
 
-      const fields = [['Level', data.Level ?? data.level], ['Id', data.Id ?? data.id], ['Parent', data.Parent ?? data.parent], ['PostCode', data.PostCode ?? data.postcode], ['Spell', data.Spell ?? data.spell], ['Address', data.Address ?? data.address]];
+      const fields = [
+        ['Level', cur.level],
+        ['Id', cur.id],
+        ['ParentId', cur.parentId],
+        ['PostCode', cur.postcode],
+        ['Spell', cur.spell],
+        ['Address', cur.address]
+      ];
       fields.forEach(f => {
         const row = document.createElement('div'); row.className = 'field';
         const k = document.createElement('div'); k.className = 'k'; k.textContent = f[0];
@@ -308,8 +309,25 @@
         row.appendChild(k); row.appendChild(v); panel.appendChild(row);
       });
 
+      // parents 列表
+      const parents = (data && Array.isArray(data.parents)) ? data.parents : [];
+      const parentTitle = document.createElement('div'); parentTitle.style.marginTop = '10px'; parentTitle.style.fontSize = '14px'; parentTitle.textContent = `上级 (${parents.length})`;
+      panel.appendChild(parentTitle);
+
+      if (parents.length > 0) {
+        const wrap = document.createElement('div'); wrap.className = 'meta'; wrap.style.marginTop = '8px';
+        parents.forEach(p => {
+          const pill = document.createElement('div'); pill.className = 'pill';
+          pill.textContent = `${p.name || ''} (${p.id || ''})`;
+          wrap.appendChild(pill);
+        });
+        panel.appendChild(wrap);
+      } else {
+        const e = document.createElement('div'); e.className = 'empty'; e.textContent = '无上级'; panel.appendChild(e);
+      }
+
       // children 列表
-      const children = data.children || [];
+      const children = (data && Array.isArray(data.children)) ? data.children : [];
       const childTitle = document.createElement('div'); childTitle.style.marginTop = '10px'; childTitle.style.fontSize = '14px'; childTitle.textContent = `下级 (${children.length})`;
       panel.appendChild(childTitle);
 
@@ -348,10 +366,7 @@
           const res = await fetch(`${apiBase}/${node.country}`);
           if (res.status !== 200) throw new Error('请求失败');
           const data = await res.json();
-          let items;
-          if (Array.isArray(data)) items = data;
-          else if (data && Array.isArray(data.children)) items = data.children;
-          else items = [];
+          const items = (data && Array.isArray(data.children)) ? data.children : [];
           renderList(items, node.country);
         } catch (e) { console.error(e); alert('加载失败') }
       } else {
@@ -432,15 +447,7 @@
       const res = await fetch(`${apiBase}/${country}`);
       if (res.status !== 200) throw new Error('请求失败');
       const data = await res.json();
-      // data 可能是数组，也可能是一个带 children 的根对象
-      let items;
-      if (Array.isArray(data)) {
-        items = data;
-      } else if (data && Array.isArray(data.children)) {
-        items = data.children;
-      } else {
-        items = [];
-      }
+      const items = (data && Array.isArray(data.children)) ? data.children : [];
       renderList(items, country);
     } catch (e) { console.error(e); alert('加载失败') }
   }
@@ -461,24 +468,26 @@
 
   function makeRegionCard(item, country) {
     const el = document.createElement('div'); el.className = 'card';
-    const idVal = item.Id ?? item.id ?? '';
-    const nameVal = item.Name ?? item.name ?? '';
+    const idVal = item.id ?? '';
+    const nameVal = item.name ?? '';
     el.style.cursor = 'pointer';
     el.onclick = () => openRegion(country, idVal, nameVal);
     el.innerHTML = `
         <h3>${escapeHtml(nameVal)}</h3>
         <div class="meta">
-          <div class="pill">level: ${escapeHtml(item.Level ?? item.level ?? '')}</div>
+          <div class="pill">level: ${escapeHtml(item.level ?? '')}</div>
           <div class="pill">id: ${escapeHtml(idVal)}</div>
-          <div class="pill">parent: ${escapeHtml(item.Parent ?? item.parent ?? '')}</div>
-          <div class="pill">postcode: ${escapeHtml(item.PostCode ?? item.postcode ?? '')}</div>
+          <div class="pill">parentId: ${escapeHtml(item.parentId ?? '')}</div>
+          <div class="pill">postcode: ${escapeHtml(displayVal(item.postcode))}</div>
         </div>
-        <div class="address">${escapeHtml(item.Address ?? item.address ?? '')}</div>
+        <div class="address">${escapeHtml(item.address ?? '')}</div>
       `;
     return el;
   }
 
   function escapeJs(s) { return String(s).replace(/'/g, "\\'") }
+  function displayVal(v) { return (v === undefined || v === null || v === '') ? '-' : v }
+  function displayVal(v) { return (v === undefined || v === null || v === '') ? '-' : v }
 
   // 打开指定地区（会请求 GET /:country/:id ）
   async function openRegion(country, id, name) {
@@ -489,7 +498,7 @@
       const res = await fetch(`${apiBase}/${country}/${id}`);
       if (res.status !== 200) throw new Error('请求失败');
       const data = await res.json();
-      // data 是单个对象，包含 children 可选
+      // data 为 GeoData
       renderRegionDetail(data, country);
     } catch (e) { console.error(e); alert('加载失败') }
   }
@@ -505,21 +514,46 @@
   }
 
   function renderRegionDetail(data, country, stayOnDetail = false) {
-    const panel = document.getElementById('detailPanel');
-    panel.innerHTML = '';
-    const title = document.createElement('h3'); title.textContent = data.Name || data.name || '';
+      const panel = document.getElementById('detailPanel');
+      panel.innerHTML = '';
+      const cur = data && data.current ? data.current : {};
+      const title = document.createElement('h3'); title.textContent = cur.name || '';
     panel.appendChild(title);
 
-    const fields = [['Level', data.Level ?? data.level], ['Id', data.Id ?? data.id], ['Parent', data.Parent ?? data.parent], ['PostCode', data.PostCode ?? data.postcode], ['Spell', data.Spell ?? data.spell], ['Address', data.Address ?? data.address]];
+      const fields = [
+        ['Level', cur.level],
+        ['Id', cur.id],
+        ['ParentId', cur.parentId],
+        ['PostCode', cur.postcode],
+        ['Spell', cur.spell],
+        ['Address', cur.address]
+      ];
     fields.forEach(f => {
       const row = document.createElement('div'); row.className = 'field';
       const k = document.createElement('div'); k.className = 'k'; k.textContent = f[0];
-      const v = document.createElement('div'); v.className = 'v'; v.textContent = f[1] ?? '';
+      const v = document.createElement('div'); v.className = 'v'; v.textContent = displayVal(f[1]);
       row.appendChild(k); row.appendChild(v); panel.appendChild(row);
     });
 
+    // parents 列表
+    const parents = (data && Array.isArray(data.parents)) ? data.parents : [];
+    const parentTitle = document.createElement('div'); parentTitle.style.marginTop = '10px'; parentTitle.style.fontSize = '14px'; parentTitle.textContent = `上级 (${parents.length})`;
+    panel.appendChild(parentTitle);
+
+    if (parents.length > 0) {
+      const wrap = document.createElement('div'); wrap.className = 'meta'; wrap.style.marginTop = '8px';
+      parents.forEach(p => {
+        const pill = document.createElement('div'); pill.className = 'pill';
+        pill.textContent = `${p.name || ''} (${p.id || ''})`;
+        wrap.appendChild(pill);
+      });
+      panel.appendChild(wrap);
+    } else {
+      const e = document.createElement('div'); e.className = 'empty'; e.textContent = '无上级'; panel.appendChild(e);
+    }
+
     // children 列表
-    const children = data.children || [];
+    const children = (data && Array.isArray(data.children)) ? data.children : [];
     const childTitle = document.createElement('div'); childTitle.style.marginTop = '10px'; childTitle.style.fontSize = '14px'; childTitle.textContent = `下级 (${children.length})`;
     panel.appendChild(childTitle);
 
@@ -557,12 +591,9 @@
       try {
         const res = await fetch(`${apiBase}/${node.country}`);
         if (res.status !== 200) throw new Error('请求失败');
-        const data = await res.json();
-        let items;
-        if (Array.isArray(data)) items = data;
-        else if (data && Array.isArray(data.children)) items = data.children;
-        else items = [];
-        renderList(items, node.country);
+          const data = await res.json();
+          const items = (data && Array.isArray(data.children)) ? data.children : [];
+          renderList(items, node.country);
       } catch (e) { console.error(e); alert('加载失败') }
     } else {
       try {
@@ -649,15 +680,7 @@
       const res = await fetch(`${apiBase}/${country}`);
       if (res.status !== 200) throw new Error('请求失败');
       const data = await res.json();
-      // data 可能是数组，也可能是一个带 children 的根对象
-      let items;
-      if (Array.isArray(data)) {
-        items = data;
-      } else if (data && Array.isArray(data.children)) {
-        items = data.children;
-      } else {
-        items = [];
-      }
+      const items = (data && Array.isArray(data.children)) ? data.children : [];
       renderList(items, country);
     } catch (e) { console.error(e); alert('加载失败') }
   }
@@ -678,19 +701,20 @@
 
   function makeRegionCard(item, country) {
     const el = document.createElement('div'); el.className = 'card';
-    const childrenCount = (item.children && item.children.length) || 0;
+    const idVal = item.id ?? '';
+    const nameVal = item.name ?? '';
     el.innerHTML = `
-        <h3>${escapeHtml(item.Name || item.name || '')}</h3>
+        <h3>${escapeHtml(nameVal)}</h3>
         <div class="meta">
-          <div class="pill">level: ${escapeHtml(item.Level ?? item.level ?? '')}</div>
-          <div class="pill">id: ${escapeHtml(item.Id ?? item.id ?? '')}</div>
-          <div class="pill">parent: ${escapeHtml(item.Parent ?? item.parent ?? '')}</div>
-          <div class="pill">postcode: ${escapeHtml(item.PostCode ?? item.postcode ?? '')}</div>
+          <div class="pill">level: ${escapeHtml(item.level ?? '')}</div>
+          <div class="pill">id: ${escapeHtml(idVal)}</div>
+          <div class="pill">parentId: ${escapeHtml(item.parentId ?? '')}</div>
+          <div class="pill">postcode: ${escapeHtml(displayVal(item.postcode))}</div>
         </div>
-        <div class="address">${escapeHtml(item.Address ?? item.address ?? '')}</div>
+        <div class="address">${escapeHtml(item.address ?? '')}</div>
         <div class="actions">
-          <button class="link" onclick="openRegion('${country}','${escapeJs(item.Id ?? item.id ?? '')}')">查看下一级 (${childrenCount})</button>
-          <button class="link" onclick="showDetail('${country}','${escapeJs(item.Id ?? item.id ?? '')}')">详情</button>
+          <button class="link" onclick="openRegion('${country}','${escapeJs(idVal)}')">查看下一级</button>
+          <button class="link" onclick="showDetail('${country}','${escapeJs(idVal)}')">详情</button>
         </div>
       `;
     return el;
@@ -707,7 +731,6 @@
       const res = await fetch(`${apiBase}/${country}/${id}`);
       if (res.status !== 200) throw new Error('请求失败');
       const data = await res.json();
-      // data 应为单个对象（包含 children 可选）
       renderRegionDetail(data, country);
     } catch (e) { console.error(e); alert('加载失败') }
   }
@@ -725,19 +748,44 @@
   function renderRegionDetail(data, country, stayOnDetail = false) {
     const panel = document.getElementById('detailPanel');
     panel.innerHTML = '';
-    const title = document.createElement('h3'); title.textContent = data.Name || data.name || '';
+    const cur = data && data.current ? data.current : {};
+    const title = document.createElement('h3'); title.textContent = cur.name || '';
     panel.appendChild(title);
 
-    const fields = [['Level', data.Level ?? data.level], ['Id', data.Id ?? data.id], ['Parent', data.Parent ?? data.parent], ['PostCode', data.PostCode ?? data.postcode], ['Spell', data.Spell ?? data.spell], ['Address', data.Address ?? data.address]];
+    const fields = [
+      ['Level', cur.level],
+      ['Id', cur.id],
+      ['ParentId', cur.parentId],
+      ['PostCode', cur.postcode],
+      ['Spell', cur.spell],
+      ['Address', cur.address]
+    ];
     fields.forEach(f => {
       const row = document.createElement('div'); row.className = 'field';
       const k = document.createElement('div'); k.className = 'k'; k.textContent = f[0];
-      const v = document.createElement('div'); v.className = 'v'; v.textContent = f[1] ?? '';
+      const v = document.createElement('div'); v.className = 'v'; v.textContent = displayVal(f[1]);
       row.appendChild(k); row.appendChild(v); panel.appendChild(row);
     });
 
+    // parents 列表
+    const parents = (data && Array.isArray(data.parents)) ? data.parents : [];
+    const parentTitle = document.createElement('div'); parentTitle.style.marginTop = '10px'; parentTitle.style.fontSize = '14px'; parentTitle.textContent = `上级 (${parents.length})`;
+    panel.appendChild(parentTitle);
+
+    if (parents.length > 0) {
+      const wrap = document.createElement('div'); wrap.className = 'meta'; wrap.style.marginTop = '8px';
+      parents.forEach(p => {
+        const pill = document.createElement('div'); pill.className = 'pill';
+        pill.textContent = `${p.name || ''} (${p.id || ''})`;
+        wrap.appendChild(pill);
+      });
+      panel.appendChild(wrap);
+    } else {
+      const e = document.createElement('div'); e.className = 'empty'; e.textContent = '无上级'; panel.appendChild(e);
+    }
+
     // children 列表
-    const children = data.children || [];
+    const children = (data && Array.isArray(data.children)) ? data.children : [];
     const childTitle = document.createElement('div'); childTitle.style.marginTop = '10px'; childTitle.style.fontSize = '14px'; childTitle.textContent = `下级 (${children.length})`;
     panel.appendChild(childTitle);
 

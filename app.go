@@ -50,7 +50,7 @@ func makePostData(data map[string]*GeoData) map[string][]*GeoData {
 	postDataMap := make(map[string][]*GeoData)
 
 	for _, data := range data {
-		if data.Current.PostCode != "" {
+		if data.Current != nil && data.Current.PostCode != "" {
 			postDataMap[data.Current.PostCode] = append(postDataMap[data.Current.PostCode], data)
 		}
 	}
@@ -91,10 +91,11 @@ func makeGeoData(rawData string) map[string]*GeoData {
 
 		parentData, parentExists := geoDataMap[parentId]
 		if !parentExists {
-			parentData = &GeoData{
-				Current: &GeoNode{
+			parentData = &GeoData{}
+			if parentId != "" { // 顶级节点不设置Current
+				parentData.Current = &GeoNode{
 					Id: parentId,
-				},
+				}
 			}
 			geoDataMap[parentId] = parentData
 		}
